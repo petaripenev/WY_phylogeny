@@ -6,3 +6,7 @@ z_arx*
 S3c_full_WY/EAF_0.05*
 S3c_full_WY/EAF_filt*
 S3c_full_WY/old*
+S3c_full_WY/test_run*
+S3c_full_WY/phylum_split*
+*.pyc
+Actino_S3*

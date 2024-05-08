@@ -8,5 +8,10 @@ S3c_full_WY/EAF_filt*
 S3c_full_WY/old*
 S3c_full_WY/test_run*
 S3c_full_WY/phylum_split*
+S3c_full_WY/Archaea_SEREB+LHUG*
+S3c_full_WY/SuperK*
+S3c_full_WY/SuperK2*
+S3c_full_WY/unlab3*
 *.pyc
 Actino_S3*
+Eury_S3*

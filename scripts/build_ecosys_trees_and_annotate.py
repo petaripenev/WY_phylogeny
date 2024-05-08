@@ -12,7 +12,7 @@ def parse_args(args):
     parser.add_argument('--s3_cluster_NR', type=str, help='NR annotations for S3 clusters', default='/groups/banfield/scratch/projects/environmental/spot/int/2023/assembly.d/S3_diversity/results/S3c/all_S3c_centroids_NR_taxa.tsv')
     parser.add_argument('--gg_phylum_colors', type=str, help='GGkBase colors for phylum', default='./S3c_full_WY/data/ggkbase_color_scheme_phylum.csv')
     parser.add_argument('--phylogeny_level', type=str, help='Phylogeny level to use for iTOL annotation and alignment split if specified.', default='phylum')
-    parser.add_argument('--split_by_phylogeny_level', action='store_true', help='Construct alignments based on phylogeny level instead of ecosystem', default=True)
+    parser.add_argument('--split_by_phylogeny_level', action='store_true', help='Construct alignments based on phylogeny level instead of ecosystem', default=False)
     parser.add_argument('--ref_aln', type=str, help='Reference alignment file', default='./S3c_full_WY/data/LHUG_S3_B+A.faa')
     parser.add_argument('--eaf_loc_file', type=str, help='File listing ecosystem to EAF file locations.', default='./S3c_full_WY/data/eco_to_eaf.csv')
     parser.add_argument('--run_fasttree', action='store_true', help='Run FastTree on the merged files.', default=False)
@@ -22,11 +22,11 @@ def parse_args(args):
     return parser.parse_args(args)
 
 TIME_DICT = {'April': 4, 'May': 5, 'June': 6, 'July': 7,'September': 9}
-COLORS = ["#294A3A", "#294A3A", "#294A3A", "#294A3A", "#294A3A",
-          "#6B3C22", "#6B3C22", "#6B3C22", "#6B3C22", "#6B3C22",
-          "#96711A", "#96711A", "#96711A", "#96711A", "#96711A"]
+# COLORS = ["#294A3A", "#294A3A", "#294A3A", "#294A3A", "#294A3A",
+#           "#6B3C22", "#6B3C22", "#6B3C22", "#6B3C22", "#6B3C22",
+#           "#96711A", "#96711A", "#96711A", "#96711A", "#96711A"]
 
-COLORS = {"0-10cm": "#294A3A", "20-30cm": "#6B3C22", "50-80cm": "#96711A"}
+DEPTH_COLORS = {"0-10cm": "#294A3A", "20-30cm": "#6B3C22", "50-80cm": "#96711A"}
 
 # Load phylum dict from ./S3c_full_WY/data/name_map.json
 PHYLUM_DICT = json.load(open('./S3c_full_WY/data/name_map.json'))
@@ -198,8 +198,13 @@ def split_ref_aln(ref_aln, list_taxa, output_dir):
             aln_to_save = [ref_aln_dict[x] for x in ref_aln_dict if PHYLUM_DICT[taxon] in x]
         if len(aln_to_save) == 0:
             aln_to_save = [ref_aln_dict[x] for x in ref_aln_dict if 'Escherichia' in x]
-        tax_to_ref[taxon] = f"{output_dir}{taxon}/ref.faa"
-        with open(f"{output_dir}{taxon}/ref.faa", "w") as output_file:
+        tax_to_ref[taxon] = f"{output_dir}/{taxon}/ref.faa"
+        # Add a single sequence from another taxon to serve as root for the tree
+        if taxon != 'Bacteria' or taxon != 'Pseudomonadota':
+            aln_to_save.extend([ref_aln_dict[x] for x in ref_aln_dict if 'Escherichia_coli' in x])
+        else:
+            aln_to_save.extend([ref_aln_dict[x] for x in ref_aln_dict if 'Haloarcula_marismortui' in x])
+        with open(f"{output_dir}/{taxon}/ref.faa", "w") as output_file:
             SeqIO.write(aln_to_save, output_file, "fasta")
     return tax_to_ref
     
@@ -209,7 +214,7 @@ def mafft_addfull(ecosys, eco_ref_aln, output_dir, run=False, split_ref=False):
     for eco in ecosys:
         # Get reference filename
         ref_name = eco_ref_aln[eco].split('/')[-1].split('.')[0]
-        output_tagged_dir = f"{output_dir}{eco}/"
+        output_tagged_dir = f"{output_dir}/{eco}/"
         # Using mafft add ecosys files to ref_aln
         if run:
             merge_file = open(f"{output_tagged_dir}{ref_name}+{eco}.faa", "w")
@@ -244,12 +249,12 @@ def create_EAF_itol_annotation(eco_gene_eaf, eco_cores, output_dir, split_by_tax
             eco_cores_sorted = [x for x in sorted(eco_cores_sorted, key=lambda x: x.split('_')[-1])]
         depths = [x.split('_')[1] for x in eco_cores_sorted]
         times = list(set([x.split('_')[0] for x in eco_cores_sorted]))
-        with open(f"{output_dir}{eco}_EAF_anno.txt", "w") as output_file:
+        with open(f"{output_dir}/{eco}/EAF_anno.txt", "w") as output_file:
             output_file.write("DATASET_EXTERNALSHAPE\n")
             output_file.write("SEPARATOR COMMA\n")
             output_file.write(f"DATASET_LABEL,EAF {eco} by time and depth\n")
             output_file.write("COLOR,#efa000\n")
-            output_file.write(f"FIELD_COLORS,{','.join([COLORS[x] for x in depths])}\n")
+            output_file.write(f"FIELD_COLORS,{','.join([DEPTH_COLORS[x] for x in depths])}\n")
             output_file.write(f"FIELD_LABELS,{','.join(eco_cores_sorted)}\n")
             output_file.write("SHAPE_SPACING,-2\n")
             output_file.write("SIZE_FACTOR,1.2\n")
@@ -271,7 +276,7 @@ def create_phylogeny_itol_annotation(eco_to_seqs, s3_NR_df, output_dir, gg_ph_co
     ggkbase_phylum_colors = pd.read_csv(gg_ph_colors)
     ggkbase_phylum_colors = pd.concat([ggkbase_phylum_colors, pd.DataFrame({'Phylum': 'Unclassified', 'Color': '#757575'}, index=[0])])
     for eco, seqs in eco_to_seqs.items():
-        with open(f"{output_dir}{eco}_phylogeny_anno.txt", "w") as output_file:
+        with open(f"{output_dir}/{eco}/phylogeny_anno.txt", "w") as output_file:
             output_file.write("DATASET_COLORSTRIP\n")
             output_file.write("SEPARATOR COMMA\n")
             output_file.write(f"DATASET_LABEL,Phylogeny {eco}\n")
@@ -292,10 +297,15 @@ def debugger_is_active() -> bool:
 
 def main(args):
     cl_args = parse_args(args)
+    # Remove trailing / if present
+    cl_args.output_dir = cl_args.output_dir.rstrip('/')
+    # Create output directory if it doesn't exist
+    if not os.path.exists(cl_args.output_dir):
+        os.makedirs(cl_args.output_dir)
     # Save arguments including defaults as text file in the output dir if running from command line
     if not debugger_is_active():
         import json
-        with open(f"{cl_args.output_dir}args.json", 'w') as f: 
+        with open(f"{cl_args.output_dir}/args.json", 'w') as f: 
             json.dump(vars(cl_args), f)
 
     s3_clusters_dict = read_S3_clusters(cl_args.s3_clusters)

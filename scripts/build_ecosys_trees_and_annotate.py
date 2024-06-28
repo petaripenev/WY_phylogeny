@@ -4,21 +4,22 @@
 import os, sys, csv, json, argparse, subprocess
 import pandas as pd
 from Bio import SeqIO
+from pSBC import pSBC, brightness_calculation
 
 def parse_args(args):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--s3_clusters', type=str, help='S3 clusters file', default='/groups/banfield/scratch/projects/environmental/spot/int/2023/assembly.d/S3_diversity/results/S3c/all_S3c_pfam_clusters.txt')
     parser.add_argument('--s3_fasta', type=str, help='S3 fasta file', default='/groups/banfield/scratch/projects/environmental/spot/int/2023/assembly.d/S3_diversity/results/S3c/all_S3c_pfam_centroids.faa')
     parser.add_argument('--s3_cluster_NR', type=str, help='NR annotations for S3 clusters', default='/groups/banfield/scratch/projects/environmental/spot/int/2023/assembly.d/S3_diversity/results/S3c/all_S3c_centroids_NR_taxa.tsv')
-    parser.add_argument('--gg_phylum_colors', type=str, help='GGkBase colors for phylum', default='./S3c_full_WY/data/ggkbase_color_scheme_phylum.csv')
+    parser.add_argument('--gg_phylum_colors', type=str, help='GGkBase colors for phylum', default='./data/ggkbase_color_scheme_phylum.csv')
     parser.add_argument('--phylogeny_level', type=str, help='Phylogeny level to use for iTOL annotation and alignment split if specified.', default='phylum')
     parser.add_argument('--split_by_phylogeny_level', action='store_true', help='Construct alignments based on phylogeny level instead of ecosystem', default=False)
-    parser.add_argument('--ref_aln', type=str, help='Reference alignment file', default='./S3c_full_WY/data/LHUG_S3_B+A.faa')
-    parser.add_argument('--eaf_loc_file', type=str, help='File listing ecosystem to EAF file locations.', default='./S3c_full_WY/data/eco_to_eaf.csv')
+    parser.add_argument('--ref_aln', type=str, help='Reference alignment file', default='./data/LHUG_S3_B+A.faa')
+    parser.add_argument('--eaf_loc_file', type=str, help='File listing ecosystem to EAF file locations.', default='./data/eco_to_eaf.csv')
     parser.add_argument('--run_fasttree', action='store_true', help='Run FastTree on the merged files.', default=False)
     parser.add_argument('--filter_by_eaf', action='store_true', help='Remove clusters without calculated EAF.', default=False)
     parser.add_argument('--min_eaf', type=float, help='Minimum EAF value to include in the phylogeny', default=0.0)
-    parser.add_argument('--output_dir', type=str, help='Output directory', default='./S3c_full_WY/')
+    parser.add_argument('--output_dir', type=str, help='Output directory', default='./results/WY_trees_output/')
     return parser.parse_args(args)
 
 TIME_DICT = {'April': 4, 'May': 5, 'June': 6, 'July': 7,'September': 9}
@@ -124,11 +125,12 @@ def parse_eaf_by_taxonomy(eaf_list, lineage='phylum'):
     '''Parse the eaf dict into a dictionary of phylum to gene to eaf'''
     taxon_gene_eaf, eco_cores, all_cores = dict(), dict(), list()
     for entry in eaf_list:
-        if entry[lineage] not in taxon_gene_eaf:
-            taxon_gene_eaf[entry[lineage]] = {}
-        if entry['cluster_gene'] not in taxon_gene_eaf[entry[lineage]]:
-            taxon_gene_eaf[entry[lineage]][entry['cluster_gene']] = {}
-        taxon_gene_eaf[entry[lineage]][entry['cluster_gene']][entry['core']] = entry['mean_resampled_EAF']
+        tax = entry[lineage].replace(' ','_').replace('Candidatus_','')
+        if tax not in taxon_gene_eaf:
+            taxon_gene_eaf[tax] = {}
+        if entry['cluster_gene'] not in taxon_gene_eaf[tax]:
+            taxon_gene_eaf[tax][entry['cluster_gene']] = {}
+        taxon_gene_eaf[tax][entry['cluster_gene']][entry['core']] = entry['mean_resampled_EAF']
         all_cores.append(entry['core'])
     eco_cores['ALL'] = list(set(all_cores))
     return taxon_gene_eaf, eco_cores
@@ -180,10 +182,10 @@ def save_split_seq_files(eco_to_seqs, output_dir, run=False):
     files = list()
     for eco, seqs in eco_to_seqs.items():
         output_tagged_dir = f"{output_dir}/{eco}"
+        # Check if dir exist, make it if it doesn't
+        if not os.path.exists(output_tagged_dir):
+            os.makedirs(output_tagged_dir)
         if run:
-            # Check if dir exist, make it if it doesn't
-            if not os.path.exists(output_tagged_dir):
-                os.makedirs(output_tagged_dir)
             with open(f'{output_tagged_dir}/{eco}.faa', 'w') as output_file:
                 SeqIO.write(seqs, output_file, "fasta")
         files.append(f'{output_tagged_dir}/{eco}.faa')
@@ -200,10 +202,14 @@ def split_ref_aln(ref_aln, list_taxa, output_dir):
             aln_to_save = [ref_aln_dict[x] for x in ref_aln_dict if 'Escherichia' in x]
         tax_to_ref[taxon] = f"{output_dir}/{taxon}/ref.faa"
         # Add a single sequence from another taxon to serve as root for the tree
-        if taxon != 'Bacteria' or taxon != 'Pseudomonadota':
-            aln_to_save.extend([ref_aln_dict[x] for x in ref_aln_dict if 'Escherichia_coli' in x])
+        if not any(['Escherichia_coli' in x.id for x in aln_to_save]):
+            aln_to_save.append([ref_aln_dict[x] for x in ref_aln_dict if 'Escherichia_coli' in x][0])
         else:
-            aln_to_save.extend([ref_aln_dict[x] for x in ref_aln_dict if 'Haloarcula_marismortui' in x])
+            aln_to_save.append([ref_aln_dict[x] for x in ref_aln_dict if 'Haloarcula_marismortui' in x][0])
+        # if taxon != 'Bacteria' or taxon != 'Pseudomonadota':
+        #     aln_to_save.extend([ref_aln_dict[x] for x in ref_aln_dict if 'Escherichia_coli' in x])
+        # else:
+        #     aln_to_save.extend([ref_aln_dict[x] for x in ref_aln_dict if 'Haloarcula_marismortui' in x])
         with open(f"{output_dir}/{taxon}/ref.faa", "w") as output_file:
             SeqIO.write(aln_to_save, output_file, "fasta")
     return tax_to_ref
@@ -271,7 +277,7 @@ def create_EAF_itol_annotation(eco_gene_eaf, eco_cores, output_dir, split_by_tax
                 output_file.write(f"{data_string}\n")
     return True
 
-def create_phylogeny_itol_annotation(eco_to_seqs, s3_NR_df, output_dir, gg_ph_colors, phylogeny_level):
+def create_phylogeny_itol_annotation(eco_to_seqs, s3_NR_df, output_dir, gg_ph_colors, phylogeny_level, split_by_tax=False):
     # Read in the ggkbase color scheme for phylum as a dictionary
     ggkbase_phylum_colors = pd.read_csv(gg_ph_colors)
     ggkbase_phylum_colors = pd.concat([ggkbase_phylum_colors, pd.DataFrame({'Phylum': 'Unclassified', 'Color': '#757575'}, index=[0])])
@@ -288,8 +294,15 @@ def create_phylogeny_itol_annotation(eco_to_seqs, s3_NR_df, output_dir, gg_ph_co
                 lineage = s3_NR_df.loc[gene, phylogeny_level]
                 color = ggkbase_phylum_colors[ggkbase_phylum_colors['Phylum'] == lineage]['Color'].tolist()
                 if len(color) == 0:
-                    color = ['#757575']
-                output_file.write(f"{gene},{color[0]}\n")
+                    output_file.write(f"{gene},#757575\n")
+                    continue
+                output_line = f"{gene},{color[0]}\n"
+                if gene[10] == 'H':
+                    bright_adj = -0.5
+                    if brightness_calculation(color[0]) < 0.5:
+                        bright_adj = 0.5
+                    output_line = f"{gene},{pSBC(bright_adj, color[0])[:-2]}\n"
+                output_file.write(output_line)
     return True
 def debugger_is_active() -> bool:
     """Return if the debugger is currently active"""
@@ -339,7 +352,7 @@ def main(args):
     merged_cut_files = cut_gaps_trimal(merged_files, run=cl_args.run_fasttree)
     run_fasttree(merged_cut_files, run=cl_args.run_fasttree)
     create_EAF_itol_annotation(eco_gene_eaf, eco_cores, cl_args.output_dir, cl_args.split_by_phylogeny_level)
-    create_phylogeny_itol_annotation(eco_to_seqs, s3_NR_df, cl_args.output_dir, cl_args.gg_phylum_colors, cl_args.phylogeny_level)
+    create_phylogeny_itol_annotation(eco_to_seqs, s3_NR_df, cl_args.output_dir, cl_args.gg_phylum_colors, cl_args.phylogeny_level, cl_args.split_by_phylogeny_level)
     print(eco_gene_eaf)
 
 if __name__ == '__main__':

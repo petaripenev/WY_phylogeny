@@ -29,8 +29,8 @@ TIME_DICT = {'April': 4, 'May': 5, 'June': 6, 'July': 7,'September': 9}
 
 DEPTH_COLORS = {"0-10cm": "#294A3A", "20-30cm": "#6B3C22", "50-80cm": "#96711A"}
 
-# Load phylum dict from ./S3c_full_WY/data/name_map.json
-PHYLUM_DICT = json.load(open('./S3c_full_WY/data/name_map.json'))
+# Load phylum dict
+PHYLUM_DICT = json.load(open('./data/name_map.json'))
 
 def read_S3_clusters(path_to_clusters):
     '''Read the S3 clusters file into a dictionary of representative genes to list of genes within that cluster.'''
